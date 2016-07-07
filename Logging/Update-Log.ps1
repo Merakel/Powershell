@@ -5,6 +5,14 @@
         [ValidateNotNullOrEmpty()]
 	    [String]$Message,
         
+        [Parameter(Mandatory = $True, ValueFromPipeline=$True)]
+        [ValidateNotNullOrEmpty()]
+        [ValidateSet("INFO", "DEBUG", "WARN", "FATAL")]
+	    [String]$Level,
+
+        [Parameter(Mandatory = $False)]
+        [Switch]$UID,
+
         [Parameter(Mandatory = $False)]
         [Switch]$File,
 
@@ -12,13 +20,16 @@
         [Switch]$LogStash,
 
         [Parameter(Mandatory = $False)]
-        [Switch]$SQL
+        [Switch]$SQL,
+
+        [Parameter(Mandatory = $False)]
+        [Switch]$Debugger
     )
 
     DynamicParam{
         $paramDictionary = New-Object System.Management.Automation.RuntimeDefinedParameterDictionary
 
-        If($File -eq $False -and $LogStash -eq $False){
+        If($File -eq $False -and $LogStash -eq $False -and $Debug -eq $False){
         Write-Warning "You must select an output"
         Break
         }
@@ -77,21 +88,15 @@
 
         Switch($SQL){
             $True{
-                $LogLevel = New-Object System.Management.Automation.ParameterAttribute
-                $LogLevel.Mandatory = $True
-                $LogLevel.ParameterSetName = 'LogParams'
-                $LogLevel.HelpMessage = "Level of the message being logged. WARN, DEBUG or FATAL are available options:"
-                $LogLevelSet = New-Object System.Management.Automation.ValidateSetAttribute("WARN","DEBUG","FATAL")
+                $GUID = New-Object System.Management.Automation.ParameterAttribute
+                $GUID.Mandatory = $True
+                $GUID.ParameterSetName = 'LogParams'
+                $GUID.HelpMessage = "GUID associated with this Applications Saved Logging Paramaters:"
 
                 $GUIDAttribute = New-Object System.Collections.ObjectModel.Collection[System.Attribute] 
 
-                $logLevelAttribute = New-Object System.Collections.ObjectModel.Collection[System.Attribute]
-
-                $logLevelAttribute.Add($LogLevel)
-                $logLevelAttribute.Add($LogLevelSet)
                 $GUIDAttribute.Add($GUID)
 
-                $logLevelParam = New-Object System.Management.Automation.RuntimeDefinedParameter('Level', [String], $logLevelAttribute)
                 $GUIDParam = New-Object System.Management.Automation.RuntimeDefinedParameter('GUID', [String], $GUIDAttribute)
 
                 $paramDictionary.Add('Level', $logLevelParam)
@@ -103,21 +108,10 @@
                 $ApplicationName.ParameterSetName = 'LogParams'
                 $ApplicationName.HelpMessage = "Name of the Application or Script:"
 
-                $InvokeLocation = New-Object System.Management.Automation.ParameterAttribute
-                $InvokeLocation.Mandatory = $True
-                $InvokeLocation.ParameterSetName = 'LogParams'
-                $InvokeLocation.HelpMessage = "Location the Script or Application is be run from:"
-
                 $RunningLocation = New-Object System.Management.Automation.ParameterAttribute
                 $RunningLocation.Mandatory = $True
                 $RunningLocation.ParameterSetName = 'LogParams'
                 $RunningLocation.HelpMessage = "Location the Script or Application is be run on:"
-
-                $LogLevel = New-Object System.Management.Automation.ParameterAttribute
-                $LogLevel.Mandatory = $True
-                $LogLevel.ParameterSetName = 'LogParams'
-                $LogLevel.HelpMessage = "Level of the message being logged. WARN, DEBUG or FATAL are available options:"
-                $LogLevelSet = New-Object System.Management.Automation.ValidateSetAttribute("WARN","DEBUG","FATAL")
 
                 $Environment = New-Object System.Management.Automation.ParameterAttribute
                 $Environment.Mandatory = $True
@@ -130,38 +124,24 @@
                 $Tags.ParameterSetName = 'LogParams'
                 $Tags.HelpMessage = "Tags for Elastic. Output should be in array format:"
 
-                $GUID = New-Object System.Management.Automation.ParameterAttribute
-                $GUID.Mandatory = $False
-                $GUID.ParameterSetName = 'LogParams'
-                $GUID.HelpMessage = "SQL GUID for Parameter Reference:"
-
                 $applicationNameAttribute = New-Object System.Collections.ObjectModel.Collection[System.Attribute]
-                $invokeLocationAttribute = New-Object System.Collections.ObjectModel.Collection[System.Attribute]
                 $runningLocationAttribute = New-Object System.Collections.ObjectModel.Collection[System.Attribute]
-                $logLevelAttribute = New-Object System.Collections.ObjectModel.Collection[System.Attribute]
                 $environmentAttribute = New-Object System.Collections.ObjectModel.Collection[System.Attribute]
                 $tagsAttribute = New-Object System.Collections.ObjectModel.Collection[System.Attribute]        
                 
                 $applicationNameAttribute.Add($ApplicationName)
-                $invokeLocationAttribute.Add($InvokeLocation)
                 $runningLocationAttribute.Add($RunningLocation)
-                $logLevelAttribute.Add($LogLevel)
-                $logLevelAttribute.Add($LogLevelSet)
                 $environmentAttribute.Add($Environment)
                 $environmentAttribute.Add($EnvironmentSet)
                 $tagsAttribute.Add($Tags)
 
                 $applicationNameParam = New-Object System.Management.Automation.RuntimeDefinedParameter('ApplicationName', [String], $applicationNameAttribute)
-                $invokeLocationParam = New-Object System.Management.Automation.RuntimeDefinedParameter('InvokeLocation', [String], $invokeLocationAttribute)
                 $runningLocationParam = New-Object System.Management.Automation.RuntimeDefinedParameter('RunningLocation', [String], $runningLocationAttribute)
-                $logLevelParam = New-Object System.Management.Automation.RuntimeDefinedParameter('Level', [String], $logLevelAttribute)
                 $environmentParam = New-Object System.Management.Automation.RuntimeDefinedParameter('Environment', [String], $environmentAttribute)
                 $tagsParam = New-Object System.Management.Automation.RuntimeDefinedParameter('Tags', [Array], $tagsAttribute)
 
                 $paramDictionary.Add('ApplicationName', $applicationNameParam)
-                $paramDictionary.Add('InvokeLocation', $invokeLocationParam)
                 $paramDictionary.Add('RunningLocation', $runningLocationParam)
-                $paramDictionary.Add('Level', $logLevelParam)
                 $paramDictionary.Add('Environment', $environmentParam)
                 $paramDictionary.Add('Tags', $tagsParam)
             }
@@ -171,30 +151,10 @@
         }
 
     Begin{
-        If($Logstash){                   
-            [System.Collections.ArrayList]$logstashOutput = @()
-            
-            $runSpacePool = [RunSpaceFactory]::CreateRunspacePool(1, 5)
-            $runSpacePool.Open()
-            
-            $flags= @{"computername" = $PSBoundParameters.LogstashHost ; "count" = "3"}
-            $pipeline = [powershell]::Create().AddCommand("Test-Connection")
-
-            Foreach($f in $flags.keys){
-                     $pipeline.AddParameter($f, $flags.$f) | Out-Null
-                     }
-
-            $pipeline.RunSpacePool = $runSpacePool #This sets the RunSpacePool to execute our current pipeline
-            $status = $pipeline.BeginInvoke() #This executes the RunSpacePool we just currently created.
-        
-            $job = "" | Select-Object Status, Pipeline
-            $job.Status = $status
-            $job.Pipeline = $pipeline
-        }
+        [System.Collections.ArrayList]$fileOutput = @()
+        [System.Collections.ArrayList]$logstashOutput = @()
         
         If($File){
-
-            [System.Collections.ArrayList]$fileOutput = @()
             $logTimestamp = Get-Date -Format MM.dd.yyyy
             Switch($PSBoundParameters.FileName){
                 {!$Null}{
@@ -229,44 +189,39 @@
             }
         }
 
-        $logTimestamp = Get-Date -Format o
+        $logTimestamp = Get-Date -Format yyyy-mm-ddTHH:MM:ss.ffzzzz
     }
 
     Process{
-        If($LogStash){
-            $jsonObject = (
-                New-Object PSObject | 
-                Add-Member -passThru NoteProperty log_timestamp $logTimestamp |
-                Add-Member -PassThru NoteProperty application_name $PSBoundParameters.ApplicationName | 
-                Add-Member -PassThru NoteProperty invoke_location $PSBoundParameters.InvokeLocation |
-                Add-Member -PassThru NoteProperty running_location $PSBoundParameters.RunningLocation |
-                Add-Member -PassThru NoteProperty level $PSBoundParameters.Level |
-                Add-Member -PassThru NoteProperty environment $PSBoundParameters.Environment | 
-                Add-Member -PassThru NoteProperty message $Message |
-                Add-Member -PassThru NoteProperty tags $PSBoundParameters.Tags) |
-                ConvertTo-Json
 
-            $logstashOutput += $jsonObject
+        [Hashtable]$logParameters = @{}
+
+        Foreach($param in $PSBoundParameters.Keys){
+            If($PSBoundParameters.$Param -eq "IsPresent"){
+                Write-Host Hi
+            }
+            Else{
+                $logParameters.Add($param.ToLower(),$PSBoundParameters.$Param)
+            }
+        }
+         
+        If($LogStash){
+            $jsonObject = New-Object PSObject
+                Foreach($param in $logParameters.Keys){
+                    $jsonObject | Add-Member -passThru NoteProperty $param $logParameters.$param
+                }
+            $logstashOutput += $jsonObject | ConvertTo-Json
             }
         
-        If($File){
-            $output = "$logTimestamp" + "|"+$PSBoundParameters.RunningLocation + "|" + $PSBoundParameters.InvokeLocation +`
-            ,"|[" + $PSBoundParameters.Environment + "][" + $PSBoundParameters.Level + "]|" + " $Message"
+        If($File -or $Debugger){
+            $output = "$logTimestamp" + "|"+$PSBoundParameters.RunningLocation +`
+            ,"|[" + $PSBoundParameters.Environment + "][" + $PSBoundParameters.Level + "]|" + "$Message"
 
             $fileOutput += $output
             }
     }
 
     End{
-        While (@($job | Where-Object {$_.Status-ne $Null}).count -gt 0){
-            If($job.Status.IsCompleted -eq $True){
-                $data += $job.Pipeline.EndInvoke($job.Status)
-                $job.Pipeline.Dispose()
-                $job.Status= $Null
-                $job.Pipeline= $Null
-            }
-        }
-
         If($LogStash){
             ForEach($log in $logstashOutput){
                 Write-Warning $log
@@ -288,7 +243,58 @@
                 }
             }
         }
-    
-    Return $fileExists
+
+        If($Debugger){
+            ForEach($log in $fileOutput){
+                Write-Warning $log
+            }
+        }
     }
+}
+
+Function Send-Log{
+    [CmdletBinding()] 
+    PARAM(
+        [Parameter(Mandatory = $True, Position = 1)]
+        [ValidateNotNullOrEmpty()] 
+        [String]$Logstash, 
+        
+        [Parameter(Mandatory = $True, Position = 2)]
+        [ValidateNotNullOrEmpty()] 
+        [Int]$Port,
+        
+        [Parameter(Mandatory = $True, ValueFromPipeline=$True, Position = 3)]
+        [ValidateNotNullOrEmpty()] 
+        $JsonObject
+    )        
+    Begin{
+        #Create Endpoint
+        $Ip = [System.Net.Dns]::GetHostAddresses($LogStash) 
+        $Address = [System.Net.IPAddress]::Parse($Ip)
+        $endPoint = New-Object System.Net.IPEndPoint $Address, $Port
+
+
+        #Create Socket
+        $addressFamily = [System.Net.Sockets.AddressFamily]::InterNetwork  
+        $datagram = [System.Net.Sockets.SocketType]::Dgram  
+        $protocol = [System.Net.Sockets.ProtocolType]::UDP
+        $socket = New-Object System.Net.Sockets.Socket $addressFamily, $datagram, $protocol   
+        $socket.TTL = 32 
+    }
+
+    Process{
+        #Connect to Socket
+        $socket.Connect($endPoint)
+
+        #Encoding
+        $encoding = [System.Text.Encoding]::UTF8
+        $buffer = $encoding.GetBytes($JsonObject)
+
+        #Send Buffer
+        [void]::($socket.Send($buffer))
+    }
+
+    End{
+        Write-Verbose "Send Complete"   
+    } 
 }
