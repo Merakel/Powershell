@@ -458,6 +458,7 @@ For($i = 0; $i -lt $EOMS.count; $i++){
 $rcList += " | Join-DeploymentVariables | Push-Deployment -silent"
 #endregion rcBuilds
 
+#region textOutput
 $writeToScript = @"
 
 #
@@ -526,7 +527,9 @@ $rList
 
 
 "@
+#endregion textOutput
 
+#region outputScript
 If($File){
     Switch($logExists){
         $True{
@@ -556,4 +559,6 @@ $path = "\\storage\Development\NetAdmin\Documentation\Deployers\Deployments\Intr
             New-Item $path -type File -value $writeToScript
         }
     }
+#endregion outputScript	
+
 }
